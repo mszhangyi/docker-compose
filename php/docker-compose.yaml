@@ -1,0 +1,170 @@
+version: '3.7'
+services:
+  # 注意
+    # 以下服务中 如果需要拷贝配置的 先直接使用命令运行后拷贝 之后删除服务在运行以下脚本
+    # docker run -itd --name [容器名称] [镜像名称]
+    # 参考链接: https://www.cnblogs.com/baoshu/p/16128127.html
+  #redis容器 - Redis container
+  test-redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - 6379:6379
+    environment:
+      # 时区上海 - Time zone Shanghai (Change if needed)
+      TZ: Asia/Shanghai
+    volumes:
+      # 数据文件 - data files
+      - ./deployment/redis:/data:rw
+    command: "redis-server --requirepass 123456  --appendonly yes"
+    privileged: true
+    restart: always
+    networks:
+      - test-net
+
+  #mysql容器 - MySQL container
+  test-mysql:
+    image: mysql:8.0.33
+    container_name: mysql80
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - 63306:3306
+    environment:
+#      MYSQL_DATABASE: ex
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: test
+      MYSQL_PASSWORD: 123456
+    volumes:
+      - ./deployment/mysql/data:/var/lib/mysql/
+      - ./deployment/mysql/my.cnf:/etc/mysql/my.cnf
+      - ./deployment/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    privileged: true
+    restart: always
+    networks:
+      - test-net
+
+  #nginx容器 - Nginx container
+  test-nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - 8080:80
+      - 443:443
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      #项目目录
+      - ./deployment/nginx/www/:/www/wwwroot
+      - ./deployment/nginx/logs:/var/nginx/logs
+      # 有可能会出现不能挂载，这个时候用手动拷贝配置文件就行
+      - ./deployment/nginx/nginx.conf/:/etc/nginx/nginx.conf
+      - ./deployment/nginx/conf.d:/etc/nginx/conf.d
+    privileged: true
+    restart: always
+    networks:
+      - test-net
+
+  test-nginx2:
+    image: nginx:latest
+    container_name: nginx2
+    ports:
+      - 8081:81
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      #项目目录
+      - ./deployment/nginx/www/:/www/wwwroot:rw
+      - ./deployment/nginx/logs:/var/nginx/logs
+      # 有可能会出现不能挂载，这个时候用手动拷贝配置文件就行
+      - ./deployment/nginx/nginx.conf/:/etc/nginx/nginx.conf
+      - ./deployment/nginx/conf.d:/etc/nginx/conf.d
+    privileged: true
+    restart: always
+    networks:
+      - test-net
+
+
+  #php
+  php73:
+    image: php:7.3-fpm
+    container_name: php73fpm
+    privileged: true
+    restart: always
+    cap_add:
+      - SYS_PTRACE
+    ports:
+      - 9000:9000
+    volumes:
+      # docker cp php73:/usr/local/etc ./deployment/php/73
+      # php 配置文件
+      - ./deployment/php/73/etc/php/php.ini:/usr/local/etc/php/php.ini
+      - ./deployment/php/73/etc/php-fpm.conf:/usr/local/etc/php-fpm.conf
+      - ./deployment/php/73/etc/php-fpm.d:/usr/local/etc/php-fpm.d
+#      # 项目代码
+      - ./deployment/nginx/www/:/www/wwwroot:rw
+    networks:
+      - test-net
+
+  #安装扩展 参考链接:https://juejin.cn/post/6959357869233799182#heading-3
+  # apt-get update && apt-get install -y --no-install-recommends libmemcached-dev zlib1g-dev libmagickwand-dev libmcrypt-dev libc-client-dev libkrb5-dev libpq-dev libzip-dev libgmp-dev libfreetype6-dev libjpeg62-turbo-dev libpng-dev && rm -r /var/lib/apt/lists/*
+  # docker-php-ext-configure opcache --enable-opcache && docker-php-ext-install opcache && docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ && docker-php-ext-install gd && docker-php-ext-configure imap --with-kerberos --with-imap-ssl && docker-php-ext-install imap && \
+  # docker-php-ext-install -j$(nproc) bcmath pcntl sockets exif gettext gmp mysqli pdo_mysql zip && \
+  # pecl install mcrypt && \
+  # pecl install imagick && \
+  # pecl install igbinary && \
+  # pecl install swoole-4.5.1 && docker-php-ext-enable mcrypt imagick igbinary swoole
+  # 重启 php 容器后在安装 redis
+  # pecl install redis-5.0.1 && docker-php-ext-enable redis
+
+
+  #es搜索容器
+  test-elasticsearch:
+    image: elasticsearch:7.17.1
+    container_name: elasticsearch717
+    ports:
+      - 9200:9200
+      - 9300:9300
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+    volumes:
+      # 运行前 先把这行配置注释 容器运行起来后
+      # 使用命令拷贝配置:docker cp test-elasticsearch717:/usr/share/elasticsearch/config ./deployment/elasticsearch[配置路径]
+      # 拷贝成功后 在解开注释从新运行即可
+#      - ./deployment/elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./deployment/elasticsearch/data:/usr/share/elasticsearch/data
+      - ./deployment/elasticsearch/logs:/usr/share/elasticsearch/logs
+      - ./deployment/elasticsearch/plugins:/usr/share/elasticsearch/plugins
+    privileged: true
+    restart: always
+    networks:
+      - test-net
+
+  #kibana查看搜索内容界面容器
+  test-kibana:
+    image: kibana:7.17.1
+    container_name: kibana717
+    ports:
+      - 5601:5601
+    environment:
+      - ELASTICSEARCH_HOSTS=http://localhost:9200
+      - discovery.type=single-node
+#    volumes:
+      # 运行前 先把这行配置注释 容器运行起来后
+      # 使用命令拷贝配置:docker cp kibana717:/usr/share/kibana/config ./deployment/kibana[配置路径]
+      # 拷贝成功后 在解开注释从新运行即可
+#      - ./deployment/kibana/config:/usr/share/kibana/config
+    privileged: true
+    restart: always
+    networks:
+      - test-net
+
+networks:
+  test-net:
+#  tg_net:
+    # testternal:
+    #   name: my-bridge
+    driver: bridge
+    # ipam:
+    #   config:
+    #     - subnet: 172.34..0/16
